@@ -13,7 +13,12 @@ const Analytics = @import("state/Analytics.zig");
 const utils = struct {
     usingnamespace @import("utils/gui.zig");
     usingnamespace @import("utils/file.zig");
+    usingnamespace @import("utils/strings.zig");
 };
+
+const default_wp_filename = "world_params.json";
+const default_rp_filename = "render_params.json";
+const default_ana_filename = "analytics.csv";
 
 rng: std.Random.DefaultPrng,
 
@@ -24,9 +29,16 @@ cycle_per_second: i32 = 2,
 last_cycle: ?std.time.Instant = null,
 running: bool = false,
 
-world: World = .{},
+world: World,
 
 analytics: std.ArrayList(Analytics),
+
+wp_buf: [128]u8 = utils.padRight(default_wp_filename, 128),
+wp_len: i32 = @intCast(default_wp_filename.len),
+rp_buf: [128]u8 = utils.padRight(default_rp_filename, 128),
+rp_len: i32 = @intCast(default_rp_filename.len),
+ana_buf: [128]u8 = utils.padRight(default_ana_filename, 128),
+ana_len: i32 = @intCast(default_ana_filename.len),
 
 selected: ?struct {
     grass_x: i32,
@@ -45,14 +57,13 @@ pub fn init() @This() {
             std.posix.getrandom(std.mem.asBytes(&seed)) catch { seed = 0; };
             break :blk seed;
         }),
+        .world = World.init(),
         .analytics = std.ArrayList(Analytics).init(allocator),
     };
 }
 
 pub fn deinit(self: *@This()) void {
-     if (self.world.ready()) {
-        self.world.deinit();
-    }
+    self.world.deinit();
     self.analytics.deinit();
 }
 
@@ -72,12 +83,14 @@ pub fn paramsGui(self: *@This(), context: nk.Context) !void {
             std.debug.print("parameters restored to default\n", .{});
         }
 
+        const wp_filename = context.editString(&self.wp_buf, &self.wp_len, c.NK_EDIT_FIELD, null).str;
+
         context.layoutRowDynamic(0, 2);
         if (context.buttonLabel("save")) {
-            try utils.saveToJson("world_params.json", self.world_params, .{});
+            try utils.saveToJson(wp_filename, self.world_params, .{});
         }
         if (context.buttonLabel("load")) {
-            try utils.loadFromJson(WorldParams, "world_params.json", &self.world_params, .{});
+            try utils.loadFromJson(WorldParams, wp_filename, &self.world_params, .{});
         }
 
         context.layoutRowDynamic(0, 1);
@@ -91,12 +104,14 @@ pub fn paramsGui(self: *@This(), context: nk.Context) !void {
             std.debug.print("parameters restored to default\n", .{});
         }
 
+        const rp_filename = context.editString(&self.rp_buf, &self.rp_len, c.NK_EDIT_FIELD, null).str;
+
         context.layoutRowDynamic(0, 2);
         if (context.buttonLabel("save")) {
-            try utils.saveToJson("render_params.json", self.render_params, .{});
+            try utils.saveToJson(rp_filename, self.render_params, .{});
         }
         if (context.buttonLabel("load")) {
-            try utils.loadFromJson(RenderParams, "render_params.json", &self.render_params, .{});
+            try utils.loadFromJson(RenderParams, rp_filename, &self.render_params, .{});
         }
     }
     context.endGUI();
@@ -127,10 +142,7 @@ pub fn controlsGui(self: *@This(), context: nk.Context) !void {
         } else {
             if (context.buttonLabel("start")) {
                 if (!self.world.ready()) {
-                    try self.world.init(
-                        self.rng.random(), 
-                        self.world_params,
-                    );
+                    try self.world.setup(self.world_params);
                 }
                 self.running = true;
             }
@@ -138,21 +150,14 @@ pub fn controlsGui(self: *@This(), context: nk.Context) !void {
         if (context.buttonLabel("step")) {
             self.running = false;
             if (!self.world.ready()) {
-                try self.world.init(
-                    self.rng.random(), 
-                    self.world_params,
-                );
+                try self.world.setup(self.world_params);
             }
-            if (self.world.ready()) {
-                try self.world.step();
-                try self.analytics.append(self.world.analytics);
-            }
+            try self.world.step(self.rng.random());
+            try self.analytics.append(self.world.analytics);
         }
         if (context.buttonLabel("reset")) {
             self.running = false;
-            if (self.world.ready()) {
-                self.world.deinit();
-            }
+            self.world.clear();
             self.selected = null;
             self.analytics.clearRetainingCapacity();
         }
@@ -163,7 +168,7 @@ pub fn controlsGui(self: *@This(), context: nk.Context) !void {
             context.layoutRowDynamic(15, 1);
 
             if (self.selected) |selected| {
-                var buf = [_]u8{0} ** 100;
+                var buf = [_]u8{0} ** 128;
                 const grass_str = try std.fmt.bufPrint(
                     &buf, 
                     "Grass: ({}, {})", 
@@ -233,8 +238,9 @@ pub fn controlsGui(self: *@This(), context: nk.Context) !void {
                 context.chartEnd();
 
                 context.layoutRowDynamic(0, 1);
+                const ana_filename = context.editString(&self.ana_buf, &self.ana_len, c.NK_EDIT_FIELD, null).str;
                 if (context.buttonLabel("Export CSV")) {
-                    try utils.saveToCsv(Analytics, "analytics.csv", self.analytics.items);
+                    try utils.saveToCsv(Analytics, ana_filename, self.analytics.items);
                 }
             }
         }
@@ -257,7 +263,7 @@ pub fn runCycle(self: *@This()) !void {
 
     if (run) {
         self.last_cycle = now;
-        try self.world.step();
+        try self.world.step(self.rng.random());
         try self.analytics.append(self.world.analytics);
     }
 }
@@ -287,8 +293,16 @@ pub fn draw(self: *const @This(), renderer: sdl.Renderer) !void {
             @as(f32, @floatFromInt(p.world_dimension)) * 
             d.world_rect.h;
 
-        const lynx_count: i32 = @intCast(tile.lynx_ids.items.len);
-        const hare_count: i32 = @intCast(tile.hare_ids.items.len);
+        var hare_count: i32 = 0;
+        var lynx_count: i32 = 0;
+        for (tile.animals) |a| {
+            if (!a.alive) continue;
+            switch (a.kind) {
+                .hare => hare_count += 1,
+                .lynx => lynx_count += 1,
+            }
+        }
+
         const total = hare_count + lynx_count + 1; 
         const r = @divFloor(lynx_count * d.color.lynx, total);
         const g = @divFloor(tile.food_level * d.color.grass, p.grass.food_storage);
@@ -323,13 +337,23 @@ pub fn handleEvent(self: *@This(), event: *const c.SDL_Event) void {
 
                 const g = &self.world.grass[ti];
 
+                var hare_count: i32 = 0;
+                var lynx_count: i32 = 0;
+                for (g.animals) |a| {
+                    if (!a.alive) continue;
+                    switch (a.kind) {
+                        .hare => hare_count += 1,
+                        .lynx => lynx_count += 1,
+                    }
+                }
+
                 self.selected = .{
                     .grass_x = @intCast(tx),
                     .grass_y = @intCast(ty),
                     .inner = .{
                         .food_level = g.food_level,
-                        .hare_count = @intCast(g.hare_ids.items.len),
-                        .lynx_count = @intCast(g.lynx_ids.items.len),
+                        .hare_count = hare_count,
+                        .lynx_count = lynx_count,
                     },
                 };
             } else {

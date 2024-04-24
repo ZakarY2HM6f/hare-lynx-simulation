@@ -21,3 +21,7 @@ pub fn snakeCaseToCamelCase(comptime snake: []const u8) [:0]const u8 {
 
     return camel;
 }
+
+pub fn padRight(comptime smol: anytype, comptime len: usize) [len]u8 {
+    return smol.* ++ [_]u8{0} ** (len - smol.len);
+}

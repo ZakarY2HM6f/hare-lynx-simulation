@@ -117,6 +117,20 @@ pub const Context = struct {
         };
     }
 
+    pub inline fn editString(
+        self: @This(), 
+        buf: []u8, 
+        len: *i32,
+        flags: c.nk_flags, 
+        filter: c.nk_plugin_filter,
+    ) struct { str: []u8, status: c.nk_flags } {
+        const status = c.nk_edit_string(self.ptr, flags, buf.ptr, len, @intCast(buf.len), filter);
+        return .{
+            .str = buf[0..@intCast(len.*)],
+            .status = status,
+        };
+    }
+
     pub inline fn chartBegin(self: @This(), t: c.nk_chart_type, count: i32, min: f32, max: f32) bool {
         return c.nk_chart_begin(self.ptr, t, count, min, max) != 0;
     }

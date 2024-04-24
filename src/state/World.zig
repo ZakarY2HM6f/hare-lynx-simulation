@@ -1,70 +1,61 @@
 const std = @import("std");
-const allocator = std.heap.c_allocator;
 
 const Params = @import("WorldParams.zig");
 const Analytics = @import("Analytics.zig");
 
 const Grass = @import("Grass.zig");
-const Hare = @import("Hare.zig");
-const Lynx = @import("Lynx.zig");
+const Animal = @import("Animal.zig");
 
 const utils = @import("../utils/math.zig");
 
 cycle: i32 = -1,
 analytics: Analytics = undefined,
 
-random: std.Random = undefined,
 params: Params = undefined,
 
+arena: std.heap.ArenaAllocator,
+
 grass: []Grass = undefined,
-hares: std.ArrayList(Hare) = undefined,
-lynxes: std.ArrayList(Lynx) = undefined,
+animals: []Animal = undefined,
 
-pub fn init(self: *@This(), random: std.Random, params: Params) !void {
-    std.debug.assert(!self.ready());
-
-    self.random = random;
-    self.params = params;
-
-    self.grass = try allocator.alloc(
-        Grass, 
-        @intCast(self.params.world_dimension * self.params.world_dimension),
-    );
-    errdefer allocator.free(self.grass);
-    for (self.grass) |*g| {
-        g.* = Grass.init(&self.params);
-    }
-
-    self.hares = try std.ArrayList(Hare).initCapacity(
-        allocator, 
-        @intCast(self.params.hare.initial_population * 2),
-    );
-    errdefer self.hares.deinit();
-    try self.hares.appendNTimes(
-        Hare.init(&self.params), 
-        @intCast(self.params.hare.initial_population),
-    );
-
-    self.lynxes = try std.ArrayList(Lynx).initCapacity(
-        allocator, 
-        @intCast(self.params.lynx.initial_population * 2),
-    );
-    errdefer self.lynxes.deinit();
-    try self.lynxes.appendNTimes(
-        Lynx.init(&self.params), 
-        @intCast(self.params.lynx.initial_population),
-    );
-
-    self.cycle = 0;
+pub fn init() @This() {
+    return .{
+        .arena = std.heap.ArenaAllocator.init(std.heap.c_allocator),
+    };
 }
 
 pub fn deinit(self: *@This()) void {
-    std.debug.assert(self.ready());
+    self.arena.deinit();
+}
 
-    allocator.free(self.grass);
-    self.hares.deinit();
-    self.lynxes.deinit();
+pub fn setup(self: *@This(), p: Params) !void {
+    _ = self.arena.reset(.retain_capacity);
+    const allocator = self.arena.allocator();
 
+    const tile_count = p.world_dimension * p.world_dimension;
+    self.grass = try allocator.alloc(Grass, @intCast(tile_count));
+    for (self.grass) |*g| {
+        g.* = try Grass.init(&p, allocator);
+    }
+    
+    const max_animal_count: usize = @intCast(p.max_populationn_density * tile_count);
+    self.animals = try allocator.alloc(Animal, max_animal_count);
+    for (self.animals, 0..max_animal_count) |*a, i| {
+        if (i < p.hare.initial_population) {
+            a.* = Animal.initHare(&p);
+        } else if (i < p.hare.initial_population + p.lynx.initial_population) {
+            a.* = Animal.initLynx(&p);
+        } else {
+            a.* = Animal.initDead();
+        }
+    }
+
+    self.params = p;
+    self.cycle = 0;
+}
+
+pub fn clear(self: *@This()) void {
+    _ = self.arena.reset(.retain_capacity);
     self.cycle = -1;
 }
 
@@ -72,10 +63,10 @@ pub fn ready(self: *const @This()) bool {
     return self.cycle >= 0;
 }
 
-pub fn step(self: *@This()) !void {
+pub fn step(self: *@This(), random: std.Random) !void {
     self.photosynthesis();
 
-    try self.randomizePosition();
+    try self.randomizePosition(random);
     try self.horngry();
     self.predation();
 
@@ -93,50 +84,45 @@ fn updateAnalytics(self: *@This()) void {
     self.analytics.grass_food_level = utils.divFloat(f32, grass_food_level, self.grass.len);
 
     var hare_population: i32 = 0;
+    var lynx_population: i32 = 0;
     var hare_food_level: i32 = 0;
-    for (self.hares.items) |h| {
-        if (h.alive) {
-            hare_population += 1;
-            hare_food_level += h.food_level;
+    var lynx_food_level: i32 = 0;
+
+    for (self.animals) |a| {
+        if (a.alive) {
+            switch (a.kind) { 
+                .hare => hare_population += 1,
+                .lynx => lynx_population += 1,
+            }
+            switch (a.kind) { 
+                .hare => hare_food_level += a.food_level, 
+                .lynx => lynx_food_level += a.food_level,
+            }
         }
     }
     self.analytics.hare_population = hare_population;
-    self.analytics.hare_food_level = utils.divFloat(f32, hare_food_level, hare_population);
-
-    var lynx_population: i32 = 0;
-    var lynx_food_level: i32 = 0;
-    for (self.lynxes.items) |l| {
-        if (l.alive) {
-            lynx_population += 1;
-            lynx_food_level += l.food_level;
-        }
-    }
     self.analytics.lynx_population = lynx_population;
-    self.analytics.lynx_food_level = utils.divFloat(f32, lynx_food_level, lynx_population);
+    self.analytics.hare_food_level = if (hare_population > 0) utils.divFloat(f32, hare_food_level, hare_population) else 0;
+    self.analytics.lynx_food_level = if (lynx_population > 0) utils.divFloat(f32, lynx_food_level, lynx_population) else 0;
 
     self.analytics.cycle = self.cycle;
 }
 
-fn randomizePosition(self: *@This()) !void {
+fn randomizePosition(self: *@This(), random: std.Random) !void {
     const p = &self.params;
 
     for (self.grass) |*g| {
-        g.hare_ids.clearRetainingCapacity();
-        g.lynx_ids.clearRetainingCapacity();
+        g.animal_count = 0;
     }
 
-    const max_grass_index: usize = @intCast(p.world_dimension * p.world_dimension - 1);
-    for (self.hares.items, 0..) |hare, ai| {
-        if (!hare.alive) continue;
-
-        const ti = self.random.uintAtMost(usize, max_grass_index);
-        try self.grass[ti].hare_ids.append(ai);
-    }
-    for (self.lynxes.items, 0..) |lynx, ai| {
-        if (!lynx.alive) continue;
-
-        const ti = self.random.uintAtMost(usize, max_grass_index);
-        try self.grass[ti].lynx_ids.append(ai);
+    for (self.animals) |*a| {
+        var i = random.uintAtMost(usize, self.grass.len - 1);
+        while (self.grass[i].animal_count >= p.max_populationn_density) {
+            i = @mod(i + 1, self.grass.len);
+        }
+        const g = &self.grass[i];
+        g.animals[g.animal_count] = a;
+        g.animal_count += 1;
     }
 }
 
@@ -146,80 +132,69 @@ fn horngry(self: *@This()) !void {
     var new_hare_count: i32 = 0;
     var new_lynx_count: i32 = 0;
 
-    for (self.grass) |tile| {
-        var breedable_id: ?usize = null;
-        for (tile.hare_ids.items) |ia| {
-            const ha = &self.hares.items[ia];
-            ha.food_level -= p.hare.survival_cost;
+    for (self.grass) |g| {
+        var breedable_hare: ?*Animal = null;
+        var breedable_lynx: ?*Animal = null;
 
-            if (ha.food_level >= p.hare.reproduction_cost) {
-                if (breedable_id) |ib| {
-                    const hb = &self.hares.items[ib];
-                    ha.food_level -= p.hare.reproduction_cost;
-                    hb.food_level -= p.hare.reproduction_cost;
-                    new_hare_count += 1;
-                    breedable_id = null;
+        for (g.animals) |a| {
+            if (!a.alive) continue;
+
+            const survival_cost = switch (a.kind) {
+                .hare => p.hare.survival_cost,
+                .lynx => p.lynx.survival_cost,
+            };
+            const reproduction_cost = switch (a.kind) {
+                .hare => p.hare.reproduction_cost,
+                .lynx => p.lynx.reproduction_cost,
+            };
+            const breedable = switch (a.kind) {
+                .hare => &breedable_hare,
+                .lynx => &breedable_lynx,
+            };
+            const new_count = switch (a.kind) {
+                .hare => &new_hare_count,
+                .lynx => &new_lynx_count,
+            };
+
+            a.food_level -= survival_cost;
+            while (a.food_level >= reproduction_cost) {
+                if (breedable.*) |b| {
+                    a.food_level -= reproduction_cost;
+                    b.food_level -= reproduction_cost;
+                    new_count.* += 1;
+                    breedable.* = if (b.food_level >= reproduction_cost) b else null;
                 } else {
-                    breedable_id = ia;
-                }
-            }
-        }
-
-        breedable_id = null;
-        for (tile.lynx_ids.items) |ia| {
-            const la = &self.lynxes.items[ia];
-            la.food_level -= p.lynx.survival_cost;
-
-            if (la.food_level >= p.lynx.reproduction_cost) {
-                if (breedable_id) |ib| {
-                    const lb = &self.lynxes.items[ib];
-                    la.food_level -= p.lynx.reproduction_cost;
-                    lb.food_level -= p.lynx.reproduction_cost;
-                    new_lynx_count += 1;
-                    breedable_id = null;
-                } else {
-                    breedable_id = ia;
+                    breedable.* = a;
+                    break;
                 }
             }
         }
     }
 
-    self.analytics.hare_births = new_hare_count;
-    self.analytics.lynx_births = new_lynx_count;
+    self.analytics.hare_births = 0;
+    self.analytics.lynx_births = 0;
 
-    for (self.hares.items) |*h| {
-        if (new_hare_count > 0 and !h.alive) {
-            h.* = Hare.init(p);
+    for (self.animals) |*a| {
+        if (a.alive) continue;
+
+        if (new_hare_count > 0) {
+            a.* = Animal.initHare(p);
             new_hare_count -= 1;
-        }
-    }
-    if (new_hare_count > 0) {
-        try self.hares.appendNTimes(
-            .{ .food_level = std.math.clamp(@divFloor(p.hare.reproduction_cost * 16, 9), 0, p.hare.food_storage) }, 
-            @intCast(new_hare_count),
-        );
-    }
-
-    for (self.lynxes.items) |*l| {
-        if (new_lynx_count > 0 and !l.alive) {
-            l.* = Lynx.init(p);
+            self.analytics.hare_births += 1;
+        } else if (new_lynx_count > 0) {
+            a.* = Animal.initLynx(p);
             new_lynx_count -= 1;
+            self.analytics.lynx_births += 1;
         }
-    }
-    if (new_lynx_count > 0) {
-        try self.lynxes.appendNTimes(
-            .{ .food_level = std.math.clamp(@divFloor(p.lynx.reproduction_cost * 16, 9), 0, p.lynx.food_storage) }, 
-            @intCast(new_lynx_count),
-        );
     }
 }
 
 fn photosynthesis(self: *@This()) void {
     const p = &self.params;
 
-    for (self.grass) |*tile| {
-        tile.food_level = std.math.clamp(
-            tile.food_level + p.grass.growth_rate, 
+    for (self.grass) |*g| {
+        g.food_level = std.math.clamp(
+            g.food_level + p.grass.growth_rate, 
             0, 
             p.grass.food_storage,
         );
@@ -231,59 +206,63 @@ fn predation(self: *@This()) void {
 
     self.analytics.hare_deaths = 0;
 
-    for (self.grass) |*tile| {
-        if (tile.hare_ids.items.len > 0) {
-            const food_available = @divFloor(
-                tile.food_level, 
-                @as(i32, @intCast(tile.hare_ids.items.len)),
-            );
-
-            for (tile.hare_ids.items) |i| {
-                const hare = &self.hares.items[i];
-
-                if (hare.food_level >= p.hare.food_storage) continue;
-
-                const food_needed = p.hare.food_storage - hare.food_level;
-                const food_eaten = blk: {
-                    if (food_needed < food_available * p.hare.grass_food_value) {
-                        break :blk @divFloor(food_needed, p.hare.grass_food_value);
-                    } else {
-                        break :blk food_available;
-                    }
-                };
-
-                hare.food_level += food_eaten * p.hare.grass_food_value;
-                tile.food_level -= food_eaten;
+    for (self.grass) |*g| {
+        var hare_count: i32 = 0;
+        var lynx_count: i32 = 0;
+        for (g.animals) |a| {
+            if (!a.alive) continue;
+            switch (a.kind) {
+                .hare => hare_count += 1,
+                .lynx => lynx_count += 1,
             }
         }
 
-        if (tile.lynx_ids.items.len > 0) {
-            const food_available: i32 = @intCast(@divFloor(
-                tile.hare_ids.items.len, 
-                tile.lynx_ids.items.len,
-            ));
+        const hare_food_available = if (hare_count > 0) @divFloor(g.food_level, hare_count) else 0;
+        const lynx_food_available = if (lynx_count > 0) @divFloor(hare_count, lynx_count) else 0;
 
-            var eaten: usize = 0;
-            for (tile.lynx_ids.items) |i| {
-                const lynx = &self.lynxes.items[i];
+        for (g.animals) |a| {
+            if (!a.alive) continue;
 
-                if (lynx.food_level >= p.lynx.food_storage) continue;
+            const food_storage = switch (a.kind) {
+                .hare => p.hare.food_storage,
+                .lynx => p.lynx.food_storage,
+            };
 
-                const food_needed = p.lynx.food_storage - lynx.food_level;
-                const food_eaten = blk: {
-                    if (food_needed < food_available * p.lynx.hare_food_value) {
-                        break :blk @divFloor(food_needed, p.lynx.hare_food_value);
-                    } else {
-                        break :blk food_available;
+            if (a.food_level >= food_storage) continue;
+
+            const food_available = switch (a.kind) {
+                .hare => hare_food_available,
+                .lynx => lynx_food_available,
+            };
+            const food_value = switch (a.kind) {
+                .hare => p.hare.grass_food_value,
+                .lynx => p.lynx.hare_food_value,
+            };
+
+            const food_needed = food_storage - a.food_level;
+            var eaten: i32 = undefined;
+            if (food_available * food_value > food_needed) {
+                eaten = @divFloor(food_needed, food_value);
+            } else {
+                eaten = food_available;
+            }
+
+            a.food_level += eaten * food_value;
+            switch (a.kind) {
+                .hare => g.food_level -= eaten,
+                .lynx => { 
+                    self.analytics.hare_deaths += eaten;
+
+                    var i: usize = 0;
+                    while (eaten > 0) {
+                        const b = g.animals[i];
+                        if (b.alive and b.kind == .hare) {
+                            b.alive = false;
+                            eaten -= 1;
+                        }
+                        i += 1;
                     }
-                };
-
-                for (0..@intCast(food_eaten)) |_| {
-                    self.hares.items[tile.hare_ids.items[eaten]].alive = false;
-                    eaten += 1;
-                }
-                lynx.food_level += food_eaten * p.lynx.hare_food_value;
-                self.analytics.hare_deaths += food_eaten;
+                },
             }
         }
     }
@@ -294,21 +273,22 @@ fn grim_reaper(self: *@This()) void {
 
     self.analytics.lynx_deaths = 0;
 
-    for (self.hares.items) |*hare| {
-        if (!hare.alive) continue;
-        hare.lifespan += 1;
-        if (hare.lifespan > p.hare.max_lifespan or hare.food_level <= 0) {
-            hare.alive = false;
-            self.analytics.hare_deaths += 1;
-        }
-    }
+    for (self.animals) |*a| {
+        if (!a.alive) continue;
 
-    for (self.lynxes.items) |*lynx| {
-        if (!lynx.alive) continue;
-        lynx.lifespan += 1;
-        if (lynx.lifespan > p.lynx.max_lifespan or lynx.food_level <= 0) {
-            lynx.alive = false;
-            self.analytics.lynx_deaths += 1;
+        const max_lifespan = switch (a.kind) {
+            .hare => p.hare.max_lifespan,
+            .lynx => p.lynx.max_lifespan,
+        };
+
+        a.lifespan += 1;
+
+        if (a.food_level <= 0 or a.lifespan > max_lifespan) {
+            a.alive = false;
+            switch (a.kind) {
+                .hare => self.analytics.hare_deaths += 1,
+                .lynx => self.analytics.lynx_deaths += 1,
+            }
         }
     }
 }

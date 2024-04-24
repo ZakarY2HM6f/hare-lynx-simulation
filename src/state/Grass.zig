@@ -1,17 +1,16 @@
 const std = @import("std");
-const allocator = std.heap.c_allocator;
 
 const Params = @import("WorldParams.zig");
+const Animal = @import("Animal.zig");
 
 food_level: i32, 
+animals: []*Animal,
 
-hare_ids: std.ArrayList(usize),
-lynx_ids: std.ArrayList(usize),
+animal_count: usize = 0,
 
-pub fn init(p: *const Params) @This() {
+pub fn init(p: *const Params, allocator: std.mem.Allocator) !@This() {
     return .{
         .food_level = p.grass.food_storage,
-        .hare_ids = std.ArrayList(usize).initCapacity(allocator, 4) catch unreachable,
-        .lynx_ids = std.ArrayList(usize).initCapacity(allocator, 4) catch unreachable,
+        .animals = try allocator.alloc(*Animal, @intCast(p.max_populationn_density)),
     };
 }
