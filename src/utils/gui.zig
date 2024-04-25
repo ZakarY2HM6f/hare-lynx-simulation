@@ -5,8 +5,10 @@ const nk = @import("../bindings/nuklear.zig");
 
 const utils = @import("strings.zig");
 
-pub fn fieldProperties(context: nk.Context, comptime T: type, ptr: *T) void {
-    const s = @typeInfo(T).Struct;
+pub fn fieldProperties(context: nk.Context, ptr: anytype) void {
+    const p = @typeInfo(@TypeOf(ptr)).Pointer;
+    const s = @typeInfo(p.child).Struct;
+
     inline for (s.fields) |field| {
         switch (field.@"type") {
             i32, f32, f64 => {
@@ -25,14 +27,16 @@ pub fn fieldProperties(context: nk.Context, comptime T: type, ptr: *T) void {
                     comptime utils.snakeCaseToCamelCase(field.name) ++ ":", 
                     c.NK_TEXT_ALIGN_BOTTOM | c.NK_TEXT_ALIGN_LEFT,
                 );
-                fieldProperties(context, field.@"type", &@field(ptr, field.name));
+                fieldProperties(context, &@field(ptr, field.name));
             },
         }
     }
 }
 
-pub fn fieldValues(context: nk.Context, comptime T: type, ptr: *const T) void {
-    const s = @typeInfo(T).Struct;
+pub fn fieldValues(context: nk.Context, ptr: anytype) void {
+    const p = @typeInfo(@TypeOf(ptr)).Pointer;
+    const s = @typeInfo(p.child).Struct;
+
     inline for (s.fields) |field| {
         switch (field.@"type") {
             bool, i32, u32, f32 => {
@@ -47,7 +51,7 @@ pub fn fieldValues(context: nk.Context, comptime T: type, ptr: *const T) void {
                     comptime utils.snakeCaseToCamelCase(field.name) ++ ":", 
                     c.NK_TEXT_ALIGN_BOTTOM | c.NK_TEXT_ALIGN_LEFT,
                 );
-                fieldValues(context, field.@"type", &@field(ptr, field.name));
+                fieldValues(context, &@field(ptr, field.name));
             },
         }
     }

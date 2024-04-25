@@ -76,7 +76,7 @@ pub fn paramsGui(self: *@This(), context: nk.Context) !void {
         context.layoutRowDynamic(0, 1);
 
         context.label("WORLD PARAMS:", c.NK_TEXT_ALIGN_BOTTOM | c.NK_TEXT_ALIGN_LEFT);
-        utils.fieldProperties(context, WorldParams, &self.world_params);
+        utils.fieldProperties(context, &self.world_params);
 
         if (context.buttonLabel("restore defaults")) {
             self.world_params = .{};
@@ -90,14 +90,14 @@ pub fn paramsGui(self: *@This(), context: nk.Context) !void {
             try utils.saveToJson(wp_filename, self.world_params, .{});
         }
         if (context.buttonLabel("load")) {
-            try utils.loadFromJson(WorldParams, wp_filename, &self.world_params, .{});
+            try utils.loadFromJson(wp_filename, &self.world_params, .{});
         }
 
         context.layoutRowDynamic(0, 1);
         context.spacer();
 
         context.label("RENDER PARAMS:", c.NK_TEXT_ALIGN_BOTTOM | c.NK_TEXT_ALIGN_LEFT);
-        utils.fieldProperties(context, RenderParams, &self.render_params);
+        utils.fieldProperties(context, &self.render_params);
 
         if (context.buttonLabel("restore defaults")) {
             self.render_params = .{};
@@ -111,7 +111,7 @@ pub fn paramsGui(self: *@This(), context: nk.Context) !void {
             try utils.saveToJson(rp_filename, self.render_params, .{});
         }
         if (context.buttonLabel("load")) {
-            try utils.loadFromJson(RenderParams, rp_filename, &self.render_params, .{});
+            try utils.loadFromJson(rp_filename, &self.render_params, .{});
         }
     }
     context.endGUI();
@@ -176,7 +176,7 @@ pub fn controlsGui(self: *@This(), context: nk.Context) !void {
                 );
                 context.label(grass_str, c.NK_TEXT_LEFT);
 
-                utils.fieldValues(context, @TypeOf(selected.inner), &selected.inner);
+                utils.fieldValues(context, &selected.inner);
             }
 
             context.spacer();
@@ -240,7 +240,11 @@ pub fn controlsGui(self: *@This(), context: nk.Context) !void {
                 context.layoutRowDynamic(0, 1);
                 const ana_filename = context.editString(&self.ana_buf, &self.ana_len, c.NK_EDIT_FIELD, null).str;
                 if (context.buttonLabel("Export CSV")) {
-                    try utils.saveToCsv(Analytics, ana_filename, self.analytics.items);
+                    const file = try utils.openFile(ana_filename);
+                    defer file.close();
+
+                    try utils.writeStructAsCsv(WorldParams, self.world.params, file.writer());
+                    try utils.writeSliceAsCsv(Analytics, self.analytics.items, file.writer());
                 }
             }
         }
@@ -271,7 +275,7 @@ pub fn runCycle(self: *@This()) !void {
 pub fn draw(self: *const @This(), renderer: sdl.Renderer) !void {
     if (!self.world.ready()) return;
 
-    const p = &self.world_params;
+    const p = &self.world.params;
     const d = &self.render_params;
     
     var tile_rect = c.SDL_FRect{ 
@@ -321,7 +325,7 @@ pub fn draw(self: *const @This(), renderer: sdl.Renderer) !void {
 pub fn handleEvent(self: *@This(), event: *const c.SDL_Event) void {
     if (!self.world.ready()) return;
 
-    const p = &self.world_params;
+    const p = &self.world.params;
     const d = &self.render_params;
 
     switch(event.@"type") {
