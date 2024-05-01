@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const allocator = std.heap.c_allocator;
 
 const c = @import("bindings/c.zig");
@@ -12,13 +13,13 @@ const Analytics = @import("state/Analytics.zig");
 
 const utils = struct {
     usingnamespace @import("utils/gui.zig");
-    usingnamespace @import("utils/file.zig");
     usingnamespace @import("utils/strings.zig");
+    usingnamespace (if (builtin.os.tag == .emscripten) @import("utils/emfile.zig") else @import("utils/file.zig"));
 };
 
-const default_wp_filename = "world_params.json";
-const default_rp_filename = "render_params.json";
-const default_ana_filename = "analytics.csv";
+const default_wp_filename = "temp/world_params.json";
+const default_rp_filename = "temp/render_params.json";
+const default_ana_filename = "temp/analytics.csv";
 
 rng: std.Random.DefaultPrng,
 
@@ -83,14 +84,39 @@ pub fn paramsGui(self: *@This(), context: nk.Context) !void {
             std.debug.print("parameters restored to default\n", .{});
         }
 
-        const wp_filename = context.editString(&self.wp_buf, &self.wp_len, c.NK_EDIT_FIELD, null).str;
-
         context.layoutRowDynamic(0, 2);
-        if (context.buttonLabel("save")) {
-            try utils.saveToJson(wp_filename, self.world_params, .{});
-        }
-        if (context.buttonLabel("load")) {
-            try utils.loadFromJson(wp_filename, &self.world_params, .{});
+        if (builtin.os.tag == .emscripten) {
+            if (context.buttonLabel("save")) {
+                if (utils.saveToJson("world_params.json", self.world_params)) {
+                    std.debug.print("saved world parameters to json\n", .{});
+                } else |err| {
+                    std.debug.print("save to json failed: {!}\n", .{ err });
+                }
+            }
+            if (context.buttonLabel("load")) {
+                if (utils.loadFromJson(&self.world_params)) {
+                    std.debug.print("loaded world parameters from json\n", .{});
+                } else |err| {
+                    std.debug.print("load from json failed: {!}\n", .{ err });
+                }
+            }
+        } else {
+            const wp_filename = context.editString(&self.wp_buf, &self.wp_len, c.NK_EDIT_FIELD, null).str;
+
+            if (context.buttonLabel("save")) {
+                if (utils.saveToJson(wp_filename, self.world_params)) {
+                    std.debug.print("saved world parameters to json\n", .{});
+                } else |err| {
+                    std.debug.print("save to json failed: {!}\n", .{ err });
+                }
+            }
+            if (context.buttonLabel("load")) {
+                if (utils.loadFromJson(wp_filename, &self.world_params)) {
+                    std.debug.print("loaded world parameters from json\n", .{});
+                } else |err| {
+                    std.debug.print("load from json failed: {!}\n", .{ err });
+                }
+            }
         }
 
         context.layoutRowDynamic(0, 1);
@@ -104,14 +130,39 @@ pub fn paramsGui(self: *@This(), context: nk.Context) !void {
             std.debug.print("parameters restored to default\n", .{});
         }
 
-        const rp_filename = context.editString(&self.rp_buf, &self.rp_len, c.NK_EDIT_FIELD, null).str;
-
         context.layoutRowDynamic(0, 2);
-        if (context.buttonLabel("save")) {
-            try utils.saveToJson(rp_filename, self.render_params, .{});
-        }
-        if (context.buttonLabel("load")) {
-            try utils.loadFromJson(rp_filename, &self.render_params, .{});
+        if (builtin.os.tag == .emscripten) {
+            if (context.buttonLabel("save")) {
+                if (utils.saveToJson("render_params.json", self.render_params)) {
+                    std.debug.print("saved render parameters to json\n", .{});
+                } else |err| {
+                    std.debug.print("save to json failed: {!}\n", .{ err });
+                }
+            }
+            if (context.buttonLabel("load")) {
+                if (utils.loadFromJson(&self.render_params)) {
+                    std.debug.print("loaded render parameters from json\n", .{});
+                } else |err| {
+                    std.debug.print("load from json failed: {!}\n", .{ err });
+                }
+            }
+        } else {
+            const rp_filename = context.editString(&self.rp_buf, &self.rp_len, c.NK_EDIT_FIELD, null).str;
+
+            if (context.buttonLabel("save")) {
+                if (utils.saveToJson(rp_filename, self.render_params)) {
+                    std.debug.print("saved render parameters to json\n", .{});
+                } else |err| {
+                    std.debug.print("save to json failed: {!}\n", .{ err });
+                }
+            }
+            if (context.buttonLabel("load")) {
+                if (utils.loadFromJson(rp_filename, &self.render_params)) {
+                    std.debug.print("loaded render parameters from json\n", .{});
+                } else |err| {
+                    std.debug.print("load from json failed: {!}\n", .{ err });
+                }
+            }
         }
     }
     context.endGUI();
@@ -168,7 +219,7 @@ pub fn controlsGui(self: *@This(), context: nk.Context) !void {
             context.layoutRowDynamic(15, 1);
 
             if (self.selected) |selected| {
-                var buf = [_]u8{0} ** 128;
+                var buf = [1]u8{0} ** 128;
                 const grass_str = try std.fmt.bufPrint(
                     &buf, 
                     "Grass: ({}, {})", 
@@ -238,13 +289,25 @@ pub fn controlsGui(self: *@This(), context: nk.Context) !void {
                 context.chartEnd();
 
                 context.layoutRowDynamic(0, 1);
-                const ana_filename = context.editString(&self.ana_buf, &self.ana_len, c.NK_EDIT_FIELD, null).str;
-                if (context.buttonLabel("Export CSV")) {
-                    const file = try utils.openFile(ana_filename);
-                    defer file.close();
+                if (builtin.os.tag == .emscripten) {
+                    if (context.buttonLabel("Export CSV")) {
+                        var buf = std.ArrayList(u8).init(allocator);
+                        defer buf.deinit();
 
-                    try utils.writeStructAsCsv(WorldParams, self.world.params, file.writer());
-                    try utils.writeSliceAsCsv(Analytics, self.analytics.items, file.writer());
+                        try utils.writeStructAsCsv(WorldParams, self.world.params, buf.writer());
+                        try utils.writeSliceAsCsv(Analytics, self.analytics.items, buf.writer());
+
+                        try utils.save("analytics.csv", "text/csv", buf.items);
+                    }
+                } else {
+                    const ana_filename = context.editString(&self.ana_buf, &self.ana_len, c.NK_EDIT_FIELD, null).str;
+                    if (context.buttonLabel("Export CSV")) {
+                        const file = try utils.openFile(ana_filename);
+                        defer file.close();
+
+                        try utils.writeStructAsCsv(WorldParams, self.world.params, file.writer());
+                        try utils.writeSliceAsCsv(Analytics, self.analytics.items, file.writer());
+                    }
                 }
             }
         }

@@ -185,6 +185,8 @@ fn horngry(self: *@This()) !void {
             a.* = Animal.initLynx(p);
             new_lynx_count -= 1;
             self.analytics.lynx_births += 1;
+        } else {
+            break;
         }
     }
 }
@@ -220,6 +222,8 @@ fn predation(self: *@This()) void {
         const hare_food_available = if (hare_count > 0) @divFloor(g.food_level, hare_count) else 0;
         const lynx_food_available = if (lynx_count > 0) @divFloor(hare_count, lynx_count) else 0;
 
+        var i: usize = 0;
+
         for (g.animals) |a| {
             if (!a.alive) continue;
 
@@ -253,7 +257,6 @@ fn predation(self: *@This()) void {
                 .lynx => { 
                     self.analytics.hare_deaths += eaten;
 
-                    var i: usize = 0;
                     while (eaten > 0) {
                         const b = g.animals[i];
                         if (b.alive and b.kind == .hare) {

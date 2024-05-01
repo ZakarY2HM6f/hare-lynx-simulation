@@ -1,6 +1,7 @@
 const std = @import("std");
 
 const c = @import("bindings/c.zig");
+const em = @import("bindings/em.zig");
 const sdl = @import("bindings/sdl.zig");
 const nk = @import("bindings/nuklear.zig");
 
@@ -15,29 +16,29 @@ var renderer: sdl.Renderer = undefined;
 var context: nk.Context = undefined;
 var state: State = undefined;
 
-pub fn main() !void {
+export fn main(argc: c_int, argv: **c_char) callconv(.C) c_int {
+    _ = argc;
+    _ = argv;
+
     //
     // BEGIN initialization
     //
-    try sdl.init(c.SDL_INIT_VIDEO);
-    defer sdl.quit();
+    sdl.init(c.SDL_INIT_VIDEO) catch |e| throw(e);
 
-    window = try sdl.Window.create(
+    window = sdl.Window.create(
         title,
         c.SDL_WINDOWPOS_CENTERED, 
         c.SDL_WINDOWPOS_CENTERED,
         width, 
         height,
         c.SDL_WINDOW_SHOWN | c.SDL_WINDOW_ALLOW_HIGHDPI,
-    );
-    defer window.destroy();
+    ) catch |e| throw(e);
 
-    renderer = try sdl.Renderer.create(
+    renderer = sdl.Renderer.create(
         window, 
         -1, 
         c.SDL_RENDERER_ACCELERATED | c.SDL_RENDERER_PRESENTVSYNC,
-    );
-    defer renderer.destroy();
+    ) catch |e| throw(e);
 
     // high-DPI scaling
     const font_scale = blk: {
@@ -54,8 +55,7 @@ pub fn main() !void {
         break :blk scale_y;
     };
 
-    context = try nk.Context.sdlInit(window, renderer);
-    defer nk.shutdown();
+    context = nk.Context.sdlInit(window, renderer) catch |e| throw(e);
 
     {
         var atlas: *c.nk_font_atlas = undefined;
@@ -75,35 +75,52 @@ pub fn main() !void {
     // END initialization
     //
 
-    var mouse_in_gui = true;
-    loop: while (true) {
-        context.beginInput();
-        while(sdl.pollEvent()) |event|{
-            if (event.@"type" == c.SDL_QUIT) break :loop;
-            _ = nk.sdlHandleEvent(&event);
+    em.emscripten_set_main_loop(loop, 0, 0);
+    return 0;
+}
 
-            if (!mouse_in_gui) {
-                state.handleEvent(&event);
-            }
+var mouse_in_gui = true;
+
+fn loop() callconv(.C) void {
+    context.beginInput();
+    while(sdl.pollEvent()) |event|{
+        if (event.@"type" == c.SDL_QUIT) {
+            state.deinit();
+            nk.shutdown();
+            renderer.destroy();
+            window.destroy();
+            sdl.quit();
+            em.emscripten_cancel_main_loop();
         }
-        nk.sdlHandleGrab();
-        context.endInput();
 
-        try state.paramsGui(context);
-        try state.controlsGui(context);
+        _ = nk.sdlHandleEvent(&event);
 
-        mouse_in_gui = context.windowIsAnyHovered();
-
-        try state.runCycle();
-
-        try renderer.setDrawColor(0, 0, 0, 1);
-        try renderer.clear();
-
-        nk.sdlRender(c.NK_ANTI_ALIASING_ON);
-        try state.draw(renderer);
-
-        renderer.present();
+        if (!mouse_in_gui) {
+            state.handleEvent(&event);
+        }
     }
+    nk.sdlHandleGrab();
+    context.endInput();
 
-    state.deinit();
+    state.paramsGui(context) catch |e| throw(e);
+    state.controlsGui(context) catch |e| throw(e);
+
+    mouse_in_gui = context.windowIsAnyHovered();
+
+    state.runCycle() catch |e| throw(e);
+
+    renderer.setDrawColor(0, 0, 0, 1) catch |e| throw(e);
+    renderer.clear() catch |e| throw(e);
+
+    nk.sdlRender(c.NK_ANTI_ALIASING_ON);
+    state.draw(renderer) catch |e| throw(e);
+
+    renderer.present();
+}
+
+fn throw(err: anytype) noreturn {
+    var buf = [1]u8{0} ** 1024;
+    const msg = std.fmt.bufPrint(&buf, "{any}", .{ err }) catch unreachable;
+    em.emscripten_console_error(msg.ptr);
+    unreachable;
 }
