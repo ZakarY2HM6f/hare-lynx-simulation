@@ -84,8 +84,8 @@ pub fn paramsGui(self: *@This(), context: nk.Context) !void {
             std.debug.print("parameters restored to default\n", .{});
         }
 
-        context.layoutRowDynamic(0, 2);
         if (builtin.os.tag == .emscripten) {
+            context.layoutRowDynamic(0, 2);
             if (context.buttonLabel("save")) {
                 if (utils.saveToJson("world_params.json", self.world_params)) {
                     std.debug.print("saved world parameters to json\n", .{});
@@ -103,6 +103,7 @@ pub fn paramsGui(self: *@This(), context: nk.Context) !void {
         } else {
             const wp_filename = context.editString(&self.wp_buf, &self.wp_len, c.NK_EDIT_FIELD, null).str;
 
+            context.layoutRowDynamic(0, 2);
             if (context.buttonLabel("save")) {
                 if (utils.saveToJson(wp_filename, self.world_params)) {
                     std.debug.print("saved world parameters to json\n", .{});
@@ -130,8 +131,8 @@ pub fn paramsGui(self: *@This(), context: nk.Context) !void {
             std.debug.print("parameters restored to default\n", .{});
         }
 
-        context.layoutRowDynamic(0, 2);
         if (builtin.os.tag == .emscripten) {
+            context.layoutRowDynamic(0, 2);
             if (context.buttonLabel("save")) {
                 if (utils.saveToJson("render_params.json", self.render_params)) {
                     std.debug.print("saved render parameters to json\n", .{});
@@ -149,6 +150,7 @@ pub fn paramsGui(self: *@This(), context: nk.Context) !void {
         } else {
             const rp_filename = context.editString(&self.rp_buf, &self.rp_len, c.NK_EDIT_FIELD, null).str;
 
+            context.layoutRowDynamic(0, 2);
             if (context.buttonLabel("save")) {
                 if (utils.saveToJson(rp_filename, self.render_params)) {
                     std.debug.print("saved render parameters to json\n", .{});
@@ -307,6 +309,8 @@ pub fn controlsGui(self: *@This(), context: nk.Context) !void {
 
                         try utils.writeStructAsCsv(WorldParams, self.world.params, file.writer());
                         try utils.writeSliceAsCsv(Analytics, self.analytics.items, file.writer());
+
+                        std.debug.print("exported result to csv\n", .{});
                     }
                 }
             }
