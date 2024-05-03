@@ -4,15 +4,38 @@
     <meta charset="utf-8">
     <meta http-equiv="Content-Type" content="text/html;charset=utf-8">
     <style>
+        * {
+            font-family: sans-serif;
+            color: #eeeeee;
+        }
         body {
-            display: flex;
-            justify-content: center;
-            align-items: center;
+            background-color: #222222;
+        }
+        #container {
+            max-width: fit-content;
+            margin-left: auto;
+            margin-right: auto;
         }
     </style>
 </head>
 <body>
-    <canvas id="canvas" oncontextmenu="event.preventDefault()"></canvas>
+    <div id="container">
+        <canvas id="canvas" oncontextmenu="event.preventDefault()"></canvas>
+        <p>
+            This is a simulation of predator and prey population dynamics between hare and lynx. </br>
+        </p>
+        <ul>
+            <li>🟦 is for hare</li>
+            <li>🟥 is for lynx</li>
+            <li>🟩 is for grass</li>
+        </ul>
+        <p>
+            Don't let them go extinct! Tweak the parameters until they reach a stable configuration. </br>
+            Personal record is at 1300 cycles. </br>
+            </br>
+            Check out my github repo: <a href="https://github.com/ZakarY2HM6f/hare-lynx-simulation/">https://github.com/ZakarY2HM6f/hare-lynx-simulation/</a>
+        </p>
+    </div>
     <script type='text/javascript'>
         var Module = {
             canvas: document.getElementById('canvas')
