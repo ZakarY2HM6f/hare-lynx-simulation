@@ -18,18 +18,17 @@
             canvas: document.getElementById('canvas')
         };
 
-        Module.canvas.addEventListener("click", (_) => {
+        let handler = (_) => {
             setTimeout(() => {
                 if (globalThis.file_selector != undefined) {
                     globalThis.file_selector.showPicker();
                     globalThis.file_selector = undefined;
                 }
-                if (globalThis.download_link != undefined) {
-                    globalThis.download_link.click();
-                    globalThis.download_link = undefined;
-                }
-            }, 10);
-        });
+            }, 10);        
+        };
+
+        Module.canvas.addEventListener("mouseup", handler);
+        Module.canvas.addEventListener("touchend", handler);
 
         function upload(mime_type, callback, callback_data) {
             globalThis.openFile = (e) => {
@@ -59,12 +58,13 @@
         }
 
         function download(filename, mime_type, buf, len) {
-            globalThis.download_link = document.createElement('a');
-            globalThis.download_link.download = filename;
-            globalThis.download_link.href = URL.createObjectURL(new Blob(
+            let download_link = document.createElement('a');
+            download_link.download = filename;
+            download_link.href = URL.createObjectURL(new Blob(
                 [new Uint8Array(Module["HEAPU8"].buffer, buf, len)], 
                 {type: mime_type}
             ));
+            download_link.click();
         }
     </script>
     <script src="index.js"></script>

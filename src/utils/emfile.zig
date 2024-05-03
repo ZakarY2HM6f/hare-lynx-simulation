@@ -5,14 +5,7 @@ const em = @import("../bindings/em.zig");
 
 pub fn saveToJson(filename: []const u8, data: anytype) !void {
     const content = try std.json.stringifyAlloc(allocator, data, .{});
-
-    var buf = [1]u8{0} ** 128;
-    const js = try std.fmt.bufPrint(
-        &buf, 
-        "download('{s}', 'application/json', {d}, {d})", 
-        .{ filename, @intFromPtr(content.ptr), content.len },
-    );
-    em.emscripten_run_script(js.ptr);
+    try save(filename, "application/json", content);
 }
 
 pub fn save(filename: []const u8, mime_type: []const u8, data: []const u8) !void {
