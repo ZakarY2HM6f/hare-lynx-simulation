@@ -16,7 +16,11 @@ pub fn saveToJson(filename: []const u8, data: anytype) !void {
     defer file.close();
 
     try file.seekTo(0);
-    try std.json.stringify(data, .{}, file.writer());
+    try std.json.stringify(
+        data,
+        .{ .whitespace = .indent_tab },
+        file.writer(),
+    );
 }
 
 pub fn loadFromJson(filename: []const u8, to: anytype) !void {
@@ -30,4 +34,3 @@ pub fn loadFromJson(filename: []const u8, to: anytype) !void {
     defer parsed.deinit();
     to.* = parsed.value;
 }
-
