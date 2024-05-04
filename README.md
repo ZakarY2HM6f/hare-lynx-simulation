@@ -1,6 +1,6 @@
 # Hare x Lynx
 
-A simulation of predator and prey population dynamics between hare and lynx written in zig.
+a simulation of predator and prey population dynamics between hare and lynx written in zig.
 
 ## Getting Started
 
@@ -8,23 +8,29 @@ try it out at: https://z3n1th.kozow.com/projects/hare-lynx/
 
 ### Dependencies
 
-- zig (I'm on 0.13.0-dev.46+3648d7df1)
+- zig 0.12.0
 - emscripten (for web build)
 - SDL2
 
 ### Building
 
-just build with `zig run`
+just build with `zig build`
 
-for native:
+#### Native
+
+rename build_config.template.json to build_config.json
+
+```shell
+mv build_config.json build_config.json
+```
+
+fill in the paths to SDL as instructed in the config file
 
 ```shell
 zig build run
 ```
 
-*note: Windows is not supported currently, don't want to know how to link everything properly*
-
-for wasm:
+#### Wasm
 
 ```shell
 zig build -Dtarget=wasm32-emscripten serve
