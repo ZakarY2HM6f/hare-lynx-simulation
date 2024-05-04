@@ -1,0 +1,15 @@
+{
+    "comment": "rename this file to build_config.json to enable it",
+    "darwin": {
+        "sdl_include_path": null,
+        "sdl_library_path": null
+    },
+    "windows": {
+        "sdl_include_path": null,
+        "sdl_library_path": null
+    },
+    "emscripten": {
+        "comment": "generally not needed, as it is inferred from EMSDK environment variable",
+        "emsdk_path": null
+    }
+}

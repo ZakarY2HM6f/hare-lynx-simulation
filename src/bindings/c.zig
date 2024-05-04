@@ -1,5 +1,5 @@
 pub usingnamespace @cImport({
-    @cInclude("SDL2/SDL.h");
+    @cInclude("SDL.h");
 
     @cDefine("NK_INCLUDE_FIXED_TYPES", {});
     @cDefine("NK_INCLUDE_STANDARD_IO", {});

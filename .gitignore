@@ -1,5 +1,5 @@
 .vscode
-
+build_config.json
 zig-cache
 zig-out
 
